@@ -1,0 +1,23 @@
+# 預設忽略所有內容
+*
+
+# 保留 .gitignore
+!.gitignore
+
+# 保留指定 YAML
+!configs/
+configs/*
+!configs/0504_test_hsc_lens.yaml
+
+# 保留指定 likelihood
+!scripts/
+scripts/*
+!scripts/test_hsc_lens.py
+
+# 保留指定 notebook
+!notebooks/
+notebooks/*
+!notebooks/theory_vector_notebook_ver2.ipynb
+
+# 保留指定 dataset
+!dataset_hsc_y3.fits
