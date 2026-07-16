@@ -6,14 +6,15 @@ from cobaya.likelihood import Likelihood
 from astropy.io import fits
 import pyccl as ccl
 
-om_m_ref = 0.279   # reference Omega_m used for coordinate rescaling
- 
-def E_flat(z, om):
-    return np.sqrt(om * (1 + z)**3 + (1 - om))
- 
-def chi_hinv_flat(z, om, n=512):
-    zz = np.linspace(0, z, n)
-    return 2997.925 * np.trapezoid(1.0 / E_flat(zz, om), zz)
+om_m_ref = 0.279
+C_OVER_H0   = 2997.92458
+
+def E_flat(z, Om):
+    return np.sqrt(Om*(1.0+z)**3 + (1.0-Om))
+
+def chi_hinv_flat(z, Om, n=512):
+    zz = np.linspace(0.0, z, n)
+    return C_OVER_H0 * np.trapezoid(1.0/E_flat(zz, Om), zz)
 
 class HSC_Lens(Likelihood): 
     # derived paras
@@ -35,32 +36,60 @@ class HSC_Lens(Likelihood):
             # self.log.info(f"ds VALUE = {self.ds_table['VALUE']}")
 
             # scale cut (Sugiyama et al. 2023)
-            self.ds_cut = self.ds_table['ANG'] >= 12.0   # Mpc/h
-            self.wp_cut = self.wp_table['ANG'] >= 8.0    # Mpc/h
+            ds_rmax = {1: 30.0, 2: 40.0, 3: 80.0}
+
+            self.ds_cut = np.zeros(len(self.ds_table), dtype=bool)
+            for bin_id, rmax in ds_rmax.items():
+                self.ds_cut |= ((self.ds_table['BIN1'] == bin_id)  # |= (OR assignment)
+                               & (self.ds_table['ANG'] >= 12.0) 
+                               & (self.ds_table['ANG'] <= rmax))
+
+            self.wp_cut = ((self.wp_table['ANG'] >= 8.0) 
+                           & (self.wp_table['ANG'] <= 80.0))
+            self.xip_cut = ((self.xip_table['ANG'] >= 7.9)
+                           & (self.xip_table['ANG'] <= 50.1))
+
+            self.xim_cut = ((self.xim_table['ANG'] >= 31.6)
+                           & (self.xim_table['ANG'] <= 158.0)
+            )
 
             # data vector
             self.data_vector = np.concatenate([
                 self.ds_table['VALUE'][self.ds_cut],
-                self.xip_table['VALUE'],
-                self.xim_table['VALUE'],
+                self.xip_table['VALUE'][self.xip_cut],
+                self.xim_table['VALUE'][self.xim_cut],
                 self.wp_table['VALUE'][self.wp_cut]
             ])
 
             n_ds_full = len(self.ds_table)
-            n_xip = len(self.xip_table)
-            n_xim = len(self.xim_table)
+            n_xip_full = len(self.xip_table)
+            n_xim_full = len(self.xim_table)
 
-            ds_idx = np.where(self.ds_cut)[0]
-            xip_idx = np.arange(n_ds_full, n_ds_full + n_xip)
-            xim_idx = np.arange(n_ds_full + n_xip, n_ds_full + n_xip + n_xim)
-            wp_idx = np.where(self.wp_cut)[0] + n_ds_full + n_xip + n_xim
+            off_xip = n_ds_full
+            off_xim = n_ds_full + n_xip_full
+            off_wp = n_ds_full + n_xip_full + n_xim_full
 
-            keep_idx = np.concatenate([ds_idx, xip_idx, xim_idx, wp_idx])
+            keep_idx = np.concatenate([
+                np.where(self.ds_cut)[0],
+                np.where(self.xip_cut)[0] + off_xip,
+                np.where(self.xim_cut)[0] + off_xim,
+                np.where(self.wp_cut)[0] + off_wp
+            ])
+
             full_cov = hdul['COVMAT'].data
-            self.inv_cov = np.linalg.inv(full_cov[np.ix_(keep_idx, keep_idx)])
-
-            self.log.info(f"After scale cut: ds={self.ds_cut.sum()}, wp={self.wp_cut.sum()}, "
-                        f"xip={n_xip}, xim={n_xim}, total={len(self.data_vector)}")
+            cut_cov = full_cov[np.ix_(keep_idx, keep_idx)]
+            self.inv_cov = np.linalg.inv(cut_cov)
+            if self.inv_cov.shape != (len(self.data_vector), len(self.data_vector)):
+                raise ValueError("Scale-cut mismatch: "
+                    f"data vector has length {len(self.data_vector)}, "
+                    f"but inverse covariance has shape {self.inv_cov.shape}")
+            
+            self.log.info("After scale cut: "
+                        f"ds={self.ds_cut.sum()}\n"
+                        f"xip={self.xip_cut.sum()}\n"
+                        f"xim={self.xim_cut.sum()}\n"
+                        f"wp={self.wp_cut.sum()}\n"
+                        f"total={len(self.data_vector)}")
 
             # redshift
             self.z_s = hdul['nz_source'].data['Z_MID']
@@ -79,7 +108,7 @@ class HSC_Lens(Likelihood):
         X = [params[f'X{i+1}'] for i in range(3)]
         b = [params[f'b{i+1}'] for i in range(3)]
         h = cosmo['h']
-        om = cosmo['Omega_m']
+        om = cosmo['Omega_c'] + cosmo['Omega_b']
 
         z_l_eff = [0.2607, 0.5106, 0.6264]
         pi_max = 100.0
@@ -105,10 +134,16 @@ class HSC_Lens(Likelihood):
             rp_ds_true = R_fac * rp_ds
             rp_wp_true = R_fac * rp_wp
             
-            pi_ds = np.linspace(1e-4, pi_max, 300)     # Mpc/h
-            pi_wp = np.linspace(1e-4, pimax_wp, 300)   # wp turn to Πmax
-
-            r_max = max(rp_ds.max(), rp_wp.max()) * 20
+            pi_ds = np.linspace(0.0, pi_max, 300)     # Mpc/h
+            pi_wp = np.linspace(0.0, pimax_wp, 300)   # wp turn to Πmax
+            # self.log.info(
+            #     f"Bin {i+1}:\n "
+            #     f"ds points={len(rp_ds_true)}\n "
+            #     f"wp points={len(rp_wp_true)}\n"
+            #     f"rp_ds={rp_ds}\n"
+            #     f"rp_wp={rp_wp}"\n)
+            
+            r_max = max(rp_ds_true.max(), rp_wp_true.max())*20
             r_grid = np.geomspace(1e-3, r_max + 100, 1000)  # Mpc/h
 
             # for CCL: 傳入 r_grid/h (Mpc)
@@ -136,7 +171,7 @@ class HSC_Lens(Likelihood):
 
                 return bar_Sigma - Sigma
             
-            m_ds.extend([E_fac * ds_at_rp(rp) for rp in rp_ds_true])
+            m_ds.extend([ds_at_rp(rp) for rp in rp_ds_true])
 
             J3_grid = np.zeros(len(r_grid))
             J5_grid = np.zeros(len(r_grid))
@@ -169,14 +204,14 @@ class HSC_Lens(Likelihood):
 
                 return 2 * np.trapezoid(xi_s, pi_arr)   # Mpc/h
 
-            m_wp.extend([wp_at_rp(rp) for rp in rp_wp_true])
+            m_wp.extend([E_fac * wp_at_rp(rp) for rp in rp_wp_true])
             # self.log.info(f"Bin {i+1} timing: ds={t_ds:.2f}s, J3J5={t_j:.2f}s, wp={t_wp:.2f}s")
 
         cl_ss = ccl.angular_cl(cosmo, s_tracer, s_tracer, ell=ell)
         xip = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
-                            theta=self.xip_table['ANG']/60., type='GG+', method='FFTLog')
+                            theta=self.xip_table['ANG'][self.xip_cut]/60., type='GG+', method='FFTLog')
         xim = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
-                            theta=self.xim_table['ANG']/60., type='GG-', method='FFTLog')
+                            theta=self.xim_table['ANG'][self.xim_cut]/60., type='GG-', method='FFTLog')
 
         return np.concatenate([m_ds, np.atleast_1d(xip), np.atleast_1d(xim), m_wp])
         
@@ -192,38 +227,11 @@ class HSC_Lens(Likelihood):
         )   # origin sigma8
         
         m = self.get_theory_prediction(cosmo, **params_values)
-
-        # # --- debug ---
-        # n_ds = self.ds_cut.sum()
-        # n_xip = len(self.xip_table)
-        # n_xim = len(self.xim_table)
-
-        # self.log.info(f"theory ds[:3] = {m[:3]}")
-        # self.log.info(f"data ds[:3] = {self.data_vector[:3]}")
-        # self.log.info(f"ratio ds[:3] = {self.data_vector[:3] / m[:3]}")
-
-        # # 各 bin 的 ratio（scale cut）
-        # d_ds_all = self.data_vector[:n_ds]
-        # m_ds_all = m[:n_ds]
-
-        # ptr = 0
-        # for i in range(3):
-        #     mask_bin = (self.ds_table['BIN1'] == (i + 1)) & self.ds_cut
-        #     n_bin = mask_bin.sum()
-        #     if n_bin == 0:
-        #         continue
-        #     d_bin = d_ds_all[ptr:ptr + n_bin]
-        #     m_bin = m_ds_all[ptr:ptr + n_bin]
-        #     ratio = d_bin / m_bin
-        #     self.log.info(f"Bin {i+1} (z={[0.2607,0.5106,0.6264][i]}) ds ratio mean={ratio.mean():.3f}, std={ratio.std():.3f}")
-        #     self.log.info(f"ratio = {np.round(ratio, 3)}")
-        #     ptr += n_bin
-
-        # d_wp = self.data_vector[n_ds + n_xip + n_xim:]
-        # m_wp = m[n_ds + n_xip + n_xim:]
-        # self.log.info(f"wp ratio = {np.round(d_wp/m_wp, 3)}")
-        # # --- debug Fin. ---
-
+        if len(m) != len(self.data_vector):
+            raise ValueError("Theory/data length mismatch: "
+                f"theory={len(m)}, data={len(self.data_vector)}. "
+                "Check scale cuts in get_theory_prediction().")
+        
         diff = self.data_vector - m
         chi2 = diff @ self.inv_cov @ diff
 
