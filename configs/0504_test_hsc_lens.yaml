@@ -19,7 +19,7 @@ likelihood:
   test_hsc_lens.HSC_Lens:
     python_path: /home/weichen/cosmo_practice/scripts/
     data_folder: /home/weichen/cosmo_practice/
-    dataset_file: "dataset (5).fits"
+    dataset_file: "dataset_hsc_y3.fits"
     speed: 10
     stop_at_error: True
 
@@ -112,18 +112,18 @@ params:
     latex: 'S_8(z=0.53)'
 
 sampler:
-  # evaluate:
+  evaluate:
   # minimize:
   #   max_evals: 10000
-  mcmc:
-    max_samples: 100000
-    Rminus1_stop: 0.05
-    burn_in: 1000
-    learn_every: 40d
-    covmat: chains/0625_RSD_hsc_lens_x_study.covmat
-    proposal_scale: 2.0
-    drag: True
-    oversample_power: 0.4
+#   mcmc:
+#     max_samples: 100000
+#     Rminus1_stop: 0.05
+#     burn_in: 1000
+#     learn_every: 40d
+#     covmat: chains/0703_RSD_hsc_lens_x_study.covmat
+#     proposal_scale: 2.0
+#     drag: True
+#     oversample_power: 0.4
 
-output: chains/0703_RSD_hsc_lens_x_study
+# output: chains/071X_RSD_hsc_lens_x_study
 

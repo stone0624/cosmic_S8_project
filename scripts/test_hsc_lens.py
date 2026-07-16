@@ -1,11 +1,19 @@
 # Integrate in real space
 
 import os
-import time
 import numpy as np
 from cobaya.likelihood import Likelihood
 from astropy.io import fits
 import pyccl as ccl
+
+om_m_ref = 0.279   # reference Omega_m used for coordinate rescaling
+ 
+def E_flat(z, om):
+    return np.sqrt(om * (1 + z)**3 + (1 - om))
+ 
+def chi_hinv_flat(z, om, n=512):
+    zz = np.linspace(0, z, n)
+    return 2997.925 * np.trapezoid(1.0 / E_flat(zz, om), zz)
 
 class HSC_Lens(Likelihood): 
     # derived paras
@@ -68,12 +76,13 @@ class HSC_Lens(Likelihood):
         }
 
     def get_theory_prediction(self, cosmo, **params):
-        # t0 = time.time()
         X = [params[f'X{i+1}'] for i in range(3)]
         b = [params[f'b{i+1}'] for i in range(3)]
         h = cosmo['h']
+        om = cosmo['Omega_m']
 
         z_l_eff = [0.2607, 0.5106, 0.6264]
+        pi_max = 100.0
         ell = np.geomspace(2, 50000, 500)
         s_tracer = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, self.nz_s))
 
@@ -81,11 +90,23 @@ class HSC_Lens(Likelihood):
         rho_m_0 = ccl.rho_x(cosmo, 1.0, 'matter', is_comoving=True)  # M☉/Mpc³
 
         for i in range(3):
+            zl = z_l_eff[i]
             a_l = 1.0 / (1.0 + z_l_eff[i])
+
+            E_C,  E_ref = E_flat(zl, om), E_flat(zl, om_m_ref)
+            chi_C, chi_ref = chi_hinv_flat(zl, om), chi_hinv_flat(zl, om_m_ref)
+            R_fac, E_fac = chi_C / chi_ref, E_C / E_ref
+            pimax_wp = (E_ref / E_C) * pi_max
+
             mask_ds = (self.ds_table['BIN1'] == (i + 1)) & self.ds_cut
             mask_wp = (self.wp_table['BIN1'] == (i + 1)) & self.wp_cut
             rp_ds = self.ds_table['ANG'][mask_ds]   # Mpc/h
             rp_wp = self.wp_table['ANG'][mask_wp]   # Mpc/h
+            rp_ds_true = R_fac * rp_ds
+            rp_wp_true = R_fac * rp_wp
+            
+            pi_ds = np.linspace(1e-4, pi_max, 300)     # Mpc/h
+            pi_wp = np.linspace(1e-4, pimax_wp, 300)   # wp turn to Πmax
 
             r_max = max(rp_ds.max(), rp_wp.max()) * 20
             r_grid = np.geomspace(1e-3, r_max + 100, 1000)  # Mpc/h
@@ -94,46 +115,41 @@ class HSC_Lens(Likelihood):
             xi_mm = ccl.correlation_3d(cosmo, a=a_l, r=r_grid/h)
             xi_gm_grid = b[i] * X[i]**2 * xi_mm
             xi_gg_grid = b[i]**2 * X[i]**2 * xi_mm
-            pi_arr = np.linspace(0, 100, 300)   # Mpc/h
 
             f_growth = ccl.growth_rate(cosmo, a_l)
             beta = f_growth / b[i]
 
-            def ds_at_rp(rp, xi_gm_grid=xi_gm_grid, r_grid=r_grid,  pi_arr=pi_arr, rho_m=rho_m_0, h=h):
+            def ds_at_rp(rp, xi_gm_grid=xi_gm_grid, r_grid=r_grid, pi_arr=pi_ds, rho_m=rho_m_0, h=h):
                 # Σ(rp)
                 r3d = np.sqrt(rp**2 + pi_arr**2)
                 xi_pi = np.interp(r3d, r_grid, xi_gm_grid)
-                Sigma = 2 * rho_m * np.trapezoid(xi_pi, pi_arr) / (h * 1e12)
+                Sigma = 2 * rho_m * np.trapezoid(xi_pi, pi_arr) / (h**2 * 1e12)
 
                 # Σ(rp') 在 rp_inner 格點上
                 rp_inner = np.linspace(1e-3, rp, 100)
                 r3d_inner = np.sqrt(rp_inner[None,:]**2 + pi_arr[:,None]**2)
                 xi_inner = np.interp(r3d_inner, r_grid, xi_gm_grid)
-                Sigma_inner = 2 * rho_m * np.trapezoid(xi_inner, pi_arr, axis=0) / (h * 1e12)
+                Sigma_inner = 2 * rho_m * np.trapezoid(xi_inner, pi_arr, axis=0) / (h**2 * 1e12)
 
                 # bar_Σ(<rp)
                 bar_Sigma = 2 / rp**2 * np.trapezoid(Sigma_inner * rp_inner, rp_inner)
 
                 return bar_Sigma - Sigma
             
-            # t_ds_start = time.time()
-            m_ds.extend([ds_at_rp(rp) for rp in rp_ds])
-            # t_ds = time.time() - t_ds_start
+            m_ds.extend([E_fac * ds_at_rp(rp) for rp in rp_ds_true])
 
             J3_grid = np.zeros(len(r_grid))
             J5_grid = np.zeros(len(r_grid))
-            # t_j_start = time.time()
             for j, r in enumerate(r_grid):
                 mask = r_grid <= r
                 if mask.sum() < 2:
                     continue
                 J3_grid[j] = np.trapezoid(xi_gg_grid[mask] * r_grid[mask]**2, r_grid[mask]) / r**3
                 J5_grid[j] = np.trapezoid(xi_gg_grid[mask] * r_grid[mask]**4, r_grid[mask]) / r**5
-            # t_j = time.time()- t_j_start
 
-            def wp_at_rp(rp, xi_gg_grid=xi_gg_grid, r_grid=r_grid, pi_arr=pi_arr, beta=beta, J3_grid=J3_grid, J5_grid=J5_grid):
+            def wp_at_rp(rp, xi_gg_grid=xi_gg_grid, r_grid=r_grid, pi_arr=pi_wp, beta=beta, J3_grid=J3_grid, J5_grid=J5_grid):
                 r3d = np.sqrt(rp**2 + pi_arr**2)
-                mu = pi_arr / r3d      # cos
+                mu = pi_arr / r3d
                 
                 # (r3d, mu) 
                 xi_lin = np.interp(r3d, r_grid, xi_gg_grid)
@@ -153,29 +169,14 @@ class HSC_Lens(Likelihood):
 
                 return 2 * np.trapezoid(xi_s, pi_arr)   # Mpc/h
 
-            # t_wp_start = time.time()
-            m_wp.extend([wp_at_rp(rp) for rp in rp_wp])
-            # t_wp = time.time() - t_wp_start
-
+            m_wp.extend([wp_at_rp(rp) for rp in rp_wp_true])
             # self.log.info(f"Bin {i+1} timing: ds={t_ds:.2f}s, J3J5={t_j:.2f}s, wp={t_wp:.2f}s")
 
-        # t_xi_start = time.time()
         cl_ss = ccl.angular_cl(cosmo, s_tracer, s_tracer, ell=ell)
         xip = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
                             theta=self.xip_table['ANG']/60., type='GG+', method='FFTLog')
         xim = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
                             theta=self.xim_table['ANG']/60., type='GG-', method='FFTLog')
-        # t_xi = time.time() - t_xi_start
-        # self._t_total = time.time() - t0
-        
-        # self.log.info(f"Total theory time: {t_total:.2f}s (xi±={t_xi:.2f}s)")
-        # time_file = "chains/time_log_RSD.txt"
-        # with open(time_file, "a") as f:
-        #     f.write(f"{t_total:.4f}\n")
-
-        # if i == 0:
-        #     self.log.info(f"r_grid[0] = {r_grid[0]:.5f} Mpc")
-        #     self.log.info(f"rp_ds min = {rp_ds.min():.5f} Mpc")
 
         return np.concatenate([m_ds, np.atleast_1d(xip), np.atleast_1d(xim), m_wp])
         
@@ -226,23 +227,6 @@ class HSC_Lens(Likelihood):
         diff = self.data_vector - m
         chi2 = diff @ self.inv_cov @ diff
 
-        # if not hasattr(self, '_chi2_history'):
-        #     self._chi2_history = []
-        #     self._accept_count = 0
-        #     self._total_count = 0
-
-        # self._total_count += 1
-        # if len(self._chi2_history) > 0:
-        #     if abs(chi2 - self._chi2_history[-1]) > 1e-6:
-        #         self._accept_count += 1    # chi2 改變代表被接受
-        # self._chi2_history.append(chi2)
-
-        # time_file = "chains/time_log_RSD.txt"
-        # accept_rate = self._accept_count / self._total_count
-        # time_file = "chains/time_log_RSD.txt"
-        # with open(time_file, "a") as f:
-        #     f.write(f"{self._t_total:.4f} {chi2:.4f} {accept_rate:.4f}\n")
-        
         if _derived is not None:
             om_m = (ombh2 + omch2) / h**2
             _derived["sigma8"] = s8_planck
