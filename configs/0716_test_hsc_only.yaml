@@ -1,0 +1,118 @@
+packages_path: /home/weichen/cosmo_practice/packages/cobaya_packages
+
+theory:
+  camb:
+    stop_at_error: True
+
+likelihood:
+  test_hsc_lens.HSC_Lens:
+    python_path: /home/weichen/cosmo_practice/scripts/
+    data_folder: /home/weichen/cosmo_practice/
+    dataset_file: "dataset_hsc_y3.fits"
+    speed: 10
+    stop_at_error: True
+
+params:
+  # --- 基礎 LCDM 宇宙學參數 ---
+  tau:
+    prior: {min: 0.01, max: 0.1}
+    ref: 0.04284
+    proposal: 0.008
+    latex: '\tau'
+  ombh2:
+    prior: {min: 0.017, max: 0.027}
+    ref: 0.02267
+    proposal: 0.0001
+    latex: '\Omega_b h^2'
+  omch2:
+    prior: {min: 0.05, max: 0.20}
+    ref: 0.11616
+    proposal: 0.001
+    latex: '\Omega_c h^2'
+  H0:
+    prior: {min: 60, max: 80}
+    ref: 69.057
+    proposal: 0.4
+    latex: 'H_0'
+  ns:
+    prior: {min: 0.8, max: 1.2}
+    ref: 0.9715
+    proposal: 0.004
+    latex: 'n_s'
+  logA:
+    prior: {min: 1.61, max: 3.91}
+    ref: 3.00976
+    proposal: 0.008
+    drop: True
+    latex: '\ln(10^{10} A_s)'
+  As:
+    value: 'lambda logA: 1e-10 * np.exp(logA)'
+    derived: True
+    latex: 'A_s'
+
+  # --- 3 bin X(z) ---
+  X1:
+    prior: {min: 0.5, max: 3.0}
+    ref: 1.06
+    proposal: 0.05
+    latex: 'X_1^{(z=0.24)}'
+  X2:
+    prior: {min: 0.5, max: 3.0}
+    ref: 1.12
+    proposal: 0.05
+    latex: 'X_2^{(z=0.38)}'
+  X3:
+    prior: {min: 0.5, max: 3.0}
+    ref: 1.27
+    proposal: 0.05
+    latex: 'X_3^{(z=0.53)}'
+
+  # --- Galaxy Bias ---
+  b1:
+    prior: {min: 0.5, max: 4.0}
+    ref: 1.86
+    proposal: 0.1
+    latex: 'b_1'
+  b2:
+    prior: {min: 0.5, max: 4.0}
+    ref: 2.05
+    proposal: 0.1
+    latex: 'b_2'
+  b3:
+    prior: {min: 0.5, max: 4.0}
+    ref: 2.02
+    proposal: 0.1
+    latex: 'b_3'
+
+  om_m:
+    derived: 'lambda omch2, ombh2, H0: (omch2 + ombh2) / (H0 / 100)**2'
+    latex: '\Omega_m'
+  sigma8:
+    derived: True
+    latex: '\sigma_8^{planck}'
+  S8_z_L1:
+    derived: True
+    latex: 'S_8(z=0.24)'
+  S8_z_L2:
+    derived: True
+    latex: 'S_8(z=0.38)'
+  S8_z_L3:
+    derived: True
+    latex: 'S_8(z=0.53)'
+
+sampler:
+  evaluate:
+  # minimize:
+  #   max_evals: 10000
+#   mcmc:
+#     max_samples: 100000
+#     Rminus1_stop: 0.05
+#     burn_in: 1000
+#     learn_every: 40d
+#     covmat: chains/0703_RSD_hsc_lens_x_study.covmat
+#     proposal_scale: 2.0
+#     drag: True
+#     oversample_power: 0.4
+
+output: chains/0716_hsc_lens_only_study
+
