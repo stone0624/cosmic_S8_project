@@ -125,5 +125,5 @@ sampler:
 #     drag: True
 #     oversample_power: 0.4
 
-# output: chains/071X_RSD_hsc_lens_x_study
+output: chains/0716_RSD_hsc_lens_x_study
 
