@@ -7,7 +7,9 @@ from astropy.io import fits
 import pyccl as ccl
 
 om_m_ref = 0.279
-C_OVER_H0   = 2997.92458
+C_OVER_H0 = 2997.92458
+alpha_mag = [2.259, 3.563, 3.729]
+SIGC_CONST = 1.6624e18
 
 def E_flat(z, Om):
     return np.sqrt(Om*(1.0+z)**3 + (1.0-Om))
@@ -15,6 +17,18 @@ def E_flat(z, Om):
 def chi_hinv_flat(z, Om, n=512):
     zz = np.linspace(0.0, z, n)
     return C_OVER_H0 * np.trapezoid(1.0/E_flat(zz, Om), zz)
+
+def sigcrit_inv_mean(zl, om, z_s, nz_s):
+    Dl = chi_hinv_flat(zl, om)
+    Ds = np.array([chi_hinv_flat(z, om) for z in z_s])
+    integ = np.where(z_s > zl, Dl * (Ds - Dl) / np.where(Ds > 0, Ds, 1.0), 0.0) * nz_s
+    return np.trapezoid(integ, z_s) / np.trapezoid(nz_s, z_s)
+
+'''
+alpha_mag & SIGC_CONST: Cell 0
+sigcrit_inv_mean: notebook Cell 1 >> 用 source n(z) 平均 lensing efficiency
+                  供 ΔΣ 的 reference-cosmology amplitude correction 與 magnification 使用。
+'''
 
 class HSC_Lens(Likelihood): 
     # derived paras
@@ -78,12 +92,18 @@ class HSC_Lens(Likelihood):
 
             full_cov = hdul['COVMAT'].data
             cut_cov = full_cov[np.ix_(keep_idx, keep_idx)]
-            self.inv_cov = np.linalg.inv(cut_cov)
+            self.inv_cov = (np.linalg.inv(cut_cov) * (107*13 - len(self.data_vector) - 2) / (107*13 - 1))  # Hartlap correction
             if self.inv_cov.shape != (len(self.data_vector), len(self.data_vector)):
                 raise ValueError("Scale-cut mismatch: "
                     f"data vector has length {len(self.data_vector)}, "
                     f"but inverse covariance has shape {self.inv_cov.shape}")
             
+            '''
+            In notebook: 
+            icov use Hartlap factor: (Nmock - Ndata - 2) / (Nmock - 1)
+            (N of mock = 107*13, N of data = 74)
+            len(self.data_vector) 取代硬編碼的 74 >> makes when scale cut 改變時仍能保持一致。
+            '''
             self.log.info("After scale cut: "
                         f"ds={self.ds_cut.sum()}\n"
                         f"xip={self.xip_cut.sum()}\n"
@@ -101,29 +121,37 @@ class HSC_Lens(Likelihood):
         return {
             'sigma8': None, 'H0': None, 'ombh2': None, 'omch2': None, 'ns': None,
             'X1': None, 'X2': None, 'X3': None,
-            'b1': None, 'b2': None, 'b3': None
+            'b1': None, 'b2': None, 'b3': None,
+            'AIA': None, 'dm_0': None, 'dpz_0': None
         }
 
     def get_theory_prediction(self, cosmo, **params):
         X = [params[f'X{i+1}'] for i in range(3)]
         b = [params[f'b{i+1}'] for i in range(3)]
+        A_IA = params['AIA']
+        dm = params['dm_0']
+        dzph = params['dpz_0']
+
         h = cosmo['h']
         om = cosmo['Omega_c'] + cosmo['Omega_b']
 
         z_l_eff = [0.2607, 0.5106, 0.6264]
         pi_max = 100.0
-        ell = np.geomspace(2, 50000, 500)
-        s_tracer = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, self.nz_s))
+        ell = np.geomspace(0.1, 1e5, 1024)
 
         m_ds, m_wp = [], []
         rho_m_0 = ccl.rho_x(cosmo, 1.0, 'matter', is_comoving=True)  # M☉/Mpc³
+        nz_true = np.interp(self.z_s + dzph, self.z_s, self.nz_s, left=0.0, right=0.0)   # Eq. (18)
 
         for i in range(3):
             zl = z_l_eff[i]
             a_l = 1.0 / (1.0 + z_l_eff[i])
 
-            E_C,  E_ref = E_flat(zl, om), E_flat(zl, om_m_ref)
+            E_C, E_ref = E_flat(zl, om), E_flat(zl, om_m_ref)
             chi_C, chi_ref = chi_hinv_flat(zl, om), chi_hinv_flat(zl, om_m_ref)
+
+            f_ds = (sigcrit_inv_mean(zl, om, self.z_s, nz_true) / sigcrit_inv_mean(zl, om_m_ref, self.z_s, self.nz_s))
+
             R_fac, E_fac = chi_C / chi_ref, E_C / E_ref
             pimax_wp = (E_ref / E_C) * pi_max
 
@@ -133,7 +161,28 @@ class HSC_Lens(Likelihood):
             rp_wp = self.wp_table['ANG'][mask_wp]   # Mpc/h
             rp_ds_true = R_fac * rp_ds
             rp_wp_true = R_fac * rp_wp
-            
+
+            # Magnification contribution to ΔΣ
+            kern_Mpc = sigcrit_inv_mean(zl, om, self.z_s, nz_true) / h
+            Sig_c = SIGC_CONST / ((1.0 + zl) * kern_Mpc)
+
+            tr_l = ccl.WeakLensingTracer(cosmo, dndz=(self.z_l, self.nz_l_list[i]))
+            tr_s = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, nz_true))
+
+            ell_mag = np.geomspace(0.1, 1e5, 512)
+            cl_ls = ccl.angular_cl(cosmo, tr_l, tr_s, ell=ell_mag)
+            theta_deg = (rp_ds_true / chi_C) * (180.0 / np.pi)
+
+            gt = ccl.correlation(
+                cosmo, ell=ell_mag, C_ell=cl_ls,
+                theta=theta_deg, type='NG', method='FFTLog'
+            )
+
+            ds_mag = (
+                2.0 * (alpha_mag[i] - 1.0)
+                * Sig_c * gt / (h * 1e12)
+            )
+
             pi_ds = np.linspace(0.0, pi_max, 300)     # Mpc/h
             pi_wp = np.linspace(0.0, pimax_wp, 300)   # wp turn to Πmax
             # self.log.info(
@@ -143,8 +192,11 @@ class HSC_Lens(Likelihood):
             #     f"rp_ds={rp_ds}\n"
             #     f"rp_wp={rp_wp}"\n)
             
-            r_max = max(rp_ds_true.max(), rp_wp_true.max())*20
-            r_grid = np.geomspace(1e-3, r_max + 100, 1000)  # Mpc/h
+            rmax_all = max(
+                np.max(self.ds_table['ANG']),
+                np.max(self.wp_table['ANG'])
+            )
+            r_grid = np.geomspace(1e-3, rmax_all*20 + 100, 1000)   # Mpc/h
 
             # for CCL: 傳入 r_grid/h (Mpc)
             xi_mm = ccl.correlation_3d(cosmo, a=a_l, r=r_grid/h)
@@ -171,7 +223,7 @@ class HSC_Lens(Likelihood):
 
                 return bar_Sigma - Sigma
             
-            m_ds.extend([ds_at_rp(rp) for rp in rp_ds_true])
+            m_ds.extend([(1.0 + dm) * f_ds * (ds_at_rp(rp) + dsm) for rp, dsm in zip(rp_ds_true, ds_mag)])
 
             J3_grid = np.zeros(len(r_grid))
             J5_grid = np.zeros(len(r_grid))
@@ -207,11 +259,22 @@ class HSC_Lens(Likelihood):
             m_wp.extend([E_fac * wp_at_rp(rp) for rp in rp_wp_true])
             # self.log.info(f"Bin {i+1} timing: ds={t_ds:.2f}s, J3J5={t_j:.2f}s, wp={t_wp:.2f}s")
 
+        ia = (self.z_s, np.full_like(self.z_s, float(A_IA)))
+        s_tracer = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, nz_true), ia_bias=ia)
+
         cl_ss = ccl.angular_cl(cosmo, s_tracer, s_tracer, ell=ell)
-        xip = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
-                            theta=self.xip_table['ANG'][self.xip_cut]/60., type='GG+', method='FFTLog')
-        xim = ccl.correlation(cosmo, ell=ell, C_ell=cl_ss,
-                            theta=self.xim_table['ANG'][self.xim_cut]/60., type='GG-', method='FFTLog')
+        fac_m = (1.0 + dm)**2
+
+        xip = fac_m * ccl.correlation(
+            cosmo, ell=ell, C_ell=cl_ss,
+            theta=self.xip_table['ANG'][self.xip_cut]/60.,
+            type='GG+', method='FFTLog'
+        )
+        xim = fac_m * ccl.correlation(
+            cosmo, ell=ell, C_ell=cl_ss,
+            theta=self.xim_table['ANG'][self.xim_cut]/60.,
+            type='GG-', method='FFTLog'
+        )
 
         return np.concatenate([m_ds, np.atleast_1d(xip), np.atleast_1d(xim), m_wp])
         
