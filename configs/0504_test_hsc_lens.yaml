@@ -60,6 +60,18 @@ params:
     value: 'lambda logA: 1e-10 * np.exp(logA)'
     derived: True
     latex: 'A_s'
+  AIA:
+    value: 0.0
+    derived: True
+    latex: 'AIA'
+  dm_0:
+    value: 0.0
+    derived: True
+    latex: 'dm_0'
+  dpz_0:
+    value: 0.0
+    derived: True
+    latex: 'dpz_0'
 
   # --- 3 bin X(z) ---
   X1:
@@ -125,5 +137,5 @@ sampler:
 #     drag: True
 #     oversample_power: 0.4
 
-output: chains/0716_RSD_hsc_lens_scale-cut_study
+output: chains/0721_RSD_hsc_lens_scale-cut_study
 
