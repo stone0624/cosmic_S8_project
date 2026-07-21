@@ -39,6 +39,36 @@ params:
     ref: 0.9715
     proposal: 0.004
     latex: 'n_s'
+  AIA:
+    prior: {min: -5.0, max: 5.0}
+    ref:
+      dist: norm
+      loc: 0.0
+      scale: 1.0
+    proposal: 1.0
+    latex: A_{\rm IA}
+  dm_0:
+    prior:
+      dist: norm
+      loc: 0.0
+      scale: 0.01
+    ref:
+      dist: norm
+      loc: 0.0
+      scale: 0.005
+    proposal: 0.005
+    latex: \Delta m
+  dpz_0:
+    prior:
+      dist: norm
+      loc: -0.05
+      scale: 0.09
+    ref:
+      dist: norm
+      loc: -0.05
+      scale: 0.05
+    proposal: 0.05
+    latex: \Delta z_{\rm ph}
   logA:
     prior: {min: 1.61, max: 3.91}
     ref: 3.00976
@@ -49,7 +79,7 @@ params:
     value: 'lambda logA: 1e-10 * np.exp(logA)'
     derived: True
     latex: 'A_s'
-
+  
   # --- 3 bin X(z) ---
   X1:
     prior: {min: 0.5, max: 3.0}
@@ -114,5 +144,5 @@ sampler:
 #     drag: True
 #     oversample_power: 0.4
 
-output: chains/0716_hsc_lens_only_study
+output: chains/07oo_hsc_lens_only_study
 
