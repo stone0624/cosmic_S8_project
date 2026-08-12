@@ -6,6 +6,13 @@ from cobaya.likelihood import Likelihood
 from astropy.io import fits
 import pyccl as ccl
 
+import sys
+sys.path.insert(0, '/home/weichen/cosmo_practice/chains/actxdesi_new/actxdesi_new')
+try:
+    from growth_model import R_of_z, f_ratio_of_z
+except ImportError:
+    R_of_z = f_ratio_of_z = None
+
 om_m_ref = 0.279
 C_OVER_H0 = 2997.92458
 alpha_mag = [2.259, 3.563, 3.729]
@@ -24,17 +31,14 @@ def sigcrit_inv_mean(zl, om, z_s, nz_s):
     integ = np.where(z_s > zl, Dl * (Ds - Dl) / np.where(Ds > 0, Ds, 1.0), 0.0) * nz_s
     return np.trapezoid(integ, z_s) / np.trapezoid(nz_s, z_s)
 
-'''
-alpha_mag & SIGC_CONST: Cell 0
-sigcrit_inv_mean: notebook Cell 1 >> 用 source n(z) 平均 lensing efficiency
-                  供 ΔΣ 的 reference-cosmology amplitude correction 與 magnification 使用。
-'''
 
-class HSC_Lens(Likelihood): 
+class HSC_Lens_Growth(Likelihood): 
     # derived paras
     output_params = ["S8_z_L1", "S8_z_L2", "S8_z_L3"]
     data_folder: str = ""
     dataset_file: str = "dataset.fits"
+
+    use_growth: bool = True
 
     def initialize(self):
         self.data_path = os.path.join(self.data_folder, self.dataset_file)
@@ -98,12 +102,6 @@ class HSC_Lens(Likelihood):
                     f"data vector has length {len(self.data_vector)}, "
                     f"but inverse covariance has shape {self.inv_cov.shape}")
             
-            '''
-            In notebook: 
-            icov use Hartlap factor: (Nmock - Ndata - 2) / (Nmock - 1)
-            (N of mock = 107*13, N of data = 74)
-            len(self.data_vector) 取代硬編碼的 74 >> makes when scale cut 改變時仍能保持一致。
-            '''
             self.log.info("After scale cut: "
                         f"ds={self.ds_cut.sum()}\n"
                         f"xip={self.xip_cut.sum()}\n"
@@ -117,27 +115,47 @@ class HSC_Lens(Likelihood):
             self.z_l = hdul['nz_lens'].data['Z_MID']
             self.nz_l_list = [hdul['nz_lens'].data[f'BIN{i+1}'] for i in range(3)]
 
+            if self.use_growth and R_of_z is None:
+                raise ImportError("use_growth=True 但 growth_model 匯入失敗,請檢查 python_path")
+
     def get_requirements(self): 
-        return {
+        req = {
             'sigma8': None, 'H0': None, 'ombh2': None, 'omch2': None, 'ns': None,
-            'X1': None, 'X2': None, 'X3': None,
             'b1': None, 'b2': None, 'b3': None,
             'AIA': None, 'dm_0': None, 'dpz_0': None
         }
+        if self.use_growth:
+            req['growth_ratio'] = None
+        return req
 
-    def get_theory_prediction(self, cosmo, **params):
-        X = [params[f'X{i+1}'] for i in range(3)]
+    @staticmethod
+    def _growth_pk2d(cosmo, gr):
+        """ξ± 與 magnification 的 lensing kernel 橫跨 z,R(z) 必須逐 z 加權,
+        不能像 ΔΣ/w_p 那樣乘一個常數"""
+        if gr is None:
+            return None
+        z = np.linspace(0.0, 5.0, 120)
+        a = 1.0 / (1.0 + z)
+        k = np.logspace(-4, 1.5, 300)   # 1/Mpc
+        R = R_of_z(gr, z)
+        pk = np.array([ccl.nonlin_matter_power(cosmo, k, ai) for ai in a])
+        return ccl.Pk2D(a_arr=a[::-1],  # CCL 要求 a 遞增
+                        lk_arr=np.log(k), pk_arr=np.log((pk * R[:, None]**2)[::-1]), is_logp=True)
+
+    def get_theory_prediction(self, cosmo, gr=None, **params):
         b = [params[f'b{i+1}'] for i in range(3)]
         A_IA = params['AIA']
         dm = params['dm_0']
         dzph = params['dpz_0']
-
+ 
         h = cosmo['h']
         om = cosmo['Omega_c'] + cosmo['Omega_b']
-
+ 
         z_l_eff = [0.2607, 0.5106, 0.6264]
         pi_max = 100.0
         ell = np.geomspace(0.1, 1e5, 1024)
+ 
+        pk2d = self._growth_pk2d(cosmo, gr)
 
         m_ds, m_wp = [], []
         rho_m_0 = ccl.rho_x(cosmo, 1.0, 'matter', is_comoving=True)  # M☉/Mpc³
@@ -146,6 +164,9 @@ class HSC_Lens(Likelihood):
         for i in range(3):
             zl = z_l_eff[i]
             a_l = 1.0 / (1.0 + z_l_eff[i])
+
+            R_l = R_of_z(gr, zl) if gr is not None else 1.0
+            fr = f_ratio_of_z(gr, zl) if gr is not None else 1.0
 
             E_C, E_ref = E_flat(zl, om), E_flat(zl, om_m_ref)
             chi_C, chi_ref = chi_hinv_flat(zl, om), chi_hinv_flat(zl, om_m_ref)
@@ -170,7 +191,7 @@ class HSC_Lens(Likelihood):
             tr_s = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, nz_true))
 
             ell_mag = np.geomspace(0.1, 1e5, 512)
-            cl_ls = ccl.angular_cl(cosmo, tr_l, tr_s, ell=ell_mag)
+            cl_ls = ccl.angular_cl(cosmo, tr_l, tr_s, ell=ell_mag, p_of_k_a=pk2d)
             theta_deg = (rp_ds_true / chi_C) * (180.0 / np.pi)
 
             gt = ccl.correlation(
@@ -178,10 +199,7 @@ class HSC_Lens(Likelihood):
                 theta=theta_deg, type='NG', method='FFTLog'
             )
 
-            ds_mag = (
-                2.0 * (alpha_mag[i] - 1.0)
-                * Sig_c * gt / (h * 1e12)
-            )
+            ds_mag = (2.0 * (alpha_mag[i] - 1.0) * Sig_c * gt / (h * 1e12))
 
             pi_ds = np.linspace(0.0, pi_max, 300)     # Mpc/h
             pi_wp = np.linspace(0.0, pimax_wp, 300)   # wp turn to Πmax
@@ -200,11 +218,11 @@ class HSC_Lens(Likelihood):
 
             # for CCL: 傳入 r_grid/h (Mpc)
             xi_mm = ccl.correlation_3d(cosmo, a=a_l, r=r_grid/h)
-            xi_gm_grid = b[i] * X[i]**2 * xi_mm
-            xi_gg_grid = b[i]**2 * X[i]**2 * xi_mm
+            xi_gm_grid = b[i] * R_l**2 * xi_mm
+            xi_gg_grid = b[i]**2 * R_l**2 * xi_mm
 
             f_growth = ccl.growth_rate(cosmo, a_l)
-            beta = f_growth / b[i]
+            beta = f_growth * fr / b[i]
 
             def ds_at_rp(rp, xi_gm_grid=xi_gm_grid, r_grid=r_grid, pi_arr=pi_ds, rho_m=rho_m_0, h=h):
                 # Σ(rp)
@@ -225,14 +243,9 @@ class HSC_Lens(Likelihood):
             
             m_ds.extend([(1.0 + dm) * f_ds * (ds_at_rp(rp) + dsm) for rp, dsm in zip(rp_ds_true, ds_mag)])
 
-            J3_grid = np.zeros(len(r_grid))
-            J5_grid = np.zeros(len(r_grid))
-            for j, r in enumerate(r_grid):
-                mask = r_grid <= r
-                if mask.sum() < 2:
-                    continue
-                J3_grid[j] = np.trapezoid(xi_gg_grid[mask] * r_grid[mask]**2, r_grid[mask]) / r**3
-                J5_grid[j] = np.trapezoid(xi_gg_grid[mask] * r_grid[mask]**4, r_grid[mask]) / r**5
+            from scipy.integrate import cumulative_trapezoid
+            J3_grid = cumulative_trapezoid(xi_gg_grid * r_grid**2, r_grid, initial=0) / r_grid**3
+            J5_grid = cumulative_trapezoid(xi_gg_grid * r_grid**4, r_grid, initial=0) / r_grid**5
 
             def wp_at_rp(rp, xi_gg_grid=xi_gg_grid, r_grid=r_grid, pi_arr=pi_wp, beta=beta, J3_grid=J3_grid, J5_grid=J5_grid):
                 r3d = np.sqrt(rp**2 + pi_arr**2)
@@ -262,7 +275,7 @@ class HSC_Lens(Likelihood):
         ia = (self.z_s, np.full_like(self.z_s, float(A_IA)))
         s_tracer = ccl.WeakLensingTracer(cosmo, dndz=(self.z_s, nz_true), ia_bias=ia)
 
-        cl_ss = ccl.angular_cl(cosmo, s_tracer, s_tracer, ell=ell)
+        cl_ss = ccl.angular_cl(cosmo, s_tracer, s_tracer, ell=ell, p_of_k_a=pk2d)
         fac_m = (1.0 + dm)**2
 
         xip = fac_m * ccl.correlation(
@@ -277,7 +290,7 @@ class HSC_Lens(Likelihood):
         )
 
         return np.concatenate([m_ds, np.atleast_1d(xip), np.atleast_1d(xim), m_wp])
-        
+
     def logp(self, _derived=None, **params_values):
         H0, ombh2, omch2=params_values['H0'], params_values['ombh2'], params_values['omch2']
         h = H0 / 100.0
@@ -288,8 +301,10 @@ class HSC_Lens(Likelihood):
             Omega_c=float(omch2/h**2), Omega_b=float(ombh2/h**2), h=h, 
             sigma8=float(s8_planck), n_s=params_values['ns'], matter_power_spectrum='halofit'
         )   # origin sigma8
+
+        gr = self.provider.get_growth_ratio() if self.use_growth else None
+        m = self.get_theory_prediction(cosmo, gr=gr, **params_values)
         
-        m = self.get_theory_prediction(cosmo, **params_values)
         if len(m) != len(self.data_vector):
             raise ValueError("Theory/data length mismatch: "
                 f"theory={len(m)}, data={len(self.data_vector)}. "
@@ -304,6 +319,7 @@ class HSC_Lens(Likelihood):
             z_lens = [0.2607, 0.5106, 0.6264]
             for i, z in enumerate(z_lens):
                 growth = ccl.growth_factor(cosmo, 1.0/(1.0+z))
-                _derived[f"S8_z_L{i+1}"] = s8_planck * params_values[f"X{i+1}"] * growth * np.sqrt(om_m/0.3)    # S8: 該層 Xi 修正後observe強度
+                R_l = R_of_z(gr, z) if gr is not None else 1.0
+                _derived[f"S8_z_L{i+1}"] = (s8_planck * R_l * growth * np.sqrt(om_m / 0.3))
 
         return -0.5 * chi2
