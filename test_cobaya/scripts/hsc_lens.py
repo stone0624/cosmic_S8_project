@@ -53,7 +53,7 @@ for _p in (os.path.join(_here, "..", "theory"), _here):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 try:
-    from test_cobaya.theory.growth_model import GrowthModel  # noqa: E402
+    from growth_model import GrowthModel  # noqa: E402
 except ModuleNotFoundError as _e:
     raise ImportError(
         f"growth_model.py not found. Looked in '{_here}/../theory' and "
