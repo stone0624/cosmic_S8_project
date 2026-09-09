@@ -1,0 +1,79 @@
+# LCDM reproduction of Sugiyama et al. 2023 (HSC-only, minimal-bias 3x2pt).
+# VERIFY every prior below against dataset's analysis_config.yaml before MCMC.
+
+likelihood:
+  hsc_lens.HSC_Lens:
+    python_path: ./scripts
+    data_folder: ./data
+    dataset_file: dataset_hsc_y3.fits
+    psf_file: dataset/psf_pp_pq_qq_used.dat          # fiducial star set
+    sumwlssig_files:
+      - dataset/sumwlssigcritinvPz_z0.dat
+      - dataset/sumwlssigcritinvPz_z1.dat
+      - dataset/sumwlssigcritinvPz_z2.dat
+    zsbin_file: dataset/photoz_bin.dat
+    growth_model: none          # 'gamma' or 'detg' for extended runs
+    n_sim: 1391                 # matches analysis_config.yaml (Nreal)
+    binave: true
+    stop_at_error: true
+
+params:
+  # ---- cosmology (no CAMB theory block: CCL does everything) ----
+  ombh2: {prior: {min: 0.017, max: 0.027}, ref: 0.02268, proposal: 0.0001,
+          latex: '\Omega_b h^2'}
+  omch2: {prior: {min: 0.05, max: 0.20}, ref: 0.1162, proposal: 0.001,
+          latex: '\Omega_c h^2'}
+  H0:    {prior: {min: 60, max: 80}, ref: 69.0, proposal: 0.4, latex: 'H_0'}
+  ns:    {prior: {min: 0.8, max: 1.2}, ref: 0.9715, proposal: 0.004,
+          latex: 'n_s'}
+  logA:  {prior: {min: 1.61, max: 3.91}, ref: 3.01, proposal: 0.01,
+          drop: true, latex: '\ln(10^{10} A_s)'}
+  As:    {value: 'lambda logA: 1e-10*np.exp(logA)', derived: true,
+          latex: 'A_s'}
+
+  # ---- galaxy bias ----
+  b1: {prior: {min: 0.5, max: 5.0}, ref: 1.92, proposal: 0.1, latex: 'b_1'}
+  b2: {prior: {min: 0.5, max: 5.0}, ref: 2.32, proposal: 0.1, latex: 'b_2'}
+  b3: {prior: {min: 0.5, max: 5.0}, ref: 2.53, proposal: 0.1, latex: 'b_3'}
+
+  # ---- IA / shear / photo-z ----
+  AIA:   {prior: {min: -5.0, max: 5.0}, ref: 0.0, proposal: 0.5,
+          latex: 'A_{\rm IA}'}
+  dm_0:  {prior: {dist: norm, loc: 0.0, scale: 0.01},
+          ref: {dist: norm, loc: 0.0, scale: 0.005}, proposal: 0.005,
+          latex: '\Delta m'}
+  dpz_0: {prior: {dist: norm, loc: -0.0529, scale: 0.0911},   # analysis_config
+          ref: {dist: norm, loc: -0.0529, scale: 0.05}, proposal: 0.03,
+          latex: '\Delta z_{\rm ph}'}
+
+  # ---- PSF systematics (NEW; required by fiducial analysis) ----
+  alphapsf: {prior: {dist: norm, loc: -0.0264, scale: 0.0103},  # analysis_config
+             ref: -0.0264, proposal: 0.01, latex: '\alpha_{\rm psf}'}
+  betapsf:  {prior: {dist: norm, loc: -1.656, scale: 1.326},    # analysis_config
+             ref: -1.656, proposal: 0.5, latex: '\beta_{\rm psf}'}
+
+  # ---- magnification bias (NOW SAMPLED; means from More+2023) ----
+  alphamag_1: {prior: {dist: norm, loc: 2.259, scale: 0.5},
+               ref: 2.259, proposal: 0.2, latex: '\alpha_{\rm mag,1}'}
+  alphamag_2: {prior: {dist: norm, loc: 3.563, scale: 0.5},
+               ref: 3.563, proposal: 0.2, latex: '\alpha_{\rm mag,2}'}
+  alphamag_3: {prior: {dist: norm, loc: 3.729, scale: 0.5},
+               ref: 3.729, proposal: 0.2, latex: '\alpha_{\rm mag,3}'}
+
+  # ---- derived ----
+  om_m:   {derived: 'lambda omch2, ombh2, H0: (omch2+ombh2+0.06/93.14)/(H0/100)**2',
+           latex: '\Omega_m'}
+  sigma8: {derived: true, latex: '\sigma_8'}
+  S8:     {derived: true, latex: 'S_8'}
+  S8_z_L1: {derived: true, latex: 'S_8(z_{L1})'}
+  S8_z_L2: {derived: true, latex: 'S_8(z_{L2})'}
+  S8_z_L3: {derived: true, latex: 'S_8(z_{L3})'}
+
+sampler:
+  evaluate:
+  # mcmc:
+  #   covmat: auto           # or the published parameter covariance
+  #   Rminus1_stop: 0.02
+  #   max_samples: 500000
+
+output: chains/lcdm_hsc_only/run
