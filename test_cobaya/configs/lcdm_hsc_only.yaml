@@ -5,7 +5,7 @@ likelihood:
   hsc_lens.HSC_Lens:
     python_path: ./scripts
     data_folder: ./fiducial
-    dataset_file: dataset_hsc_y3.fits
+    dataset_file: dataset_hsc_y3_fixed.fits
     psf_file: dataset/psf_pp_pq_qq_used.dat          # fiducial star set
     sumwlssig_files:
       - dataset/sumwlssigcritinvPz_z0.dat

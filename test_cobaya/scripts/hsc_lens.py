@@ -149,8 +149,7 @@ class HSC_Lens(Likelihood):
     xip_tmin: float = 7.1
     xip_tmax: float = 56.6
     xim_tmin: float = 31.2
-    xim_tmax: float = 248.0
-
+    xim_tmax: float = 158.489
     output_params = ["sigma8", "S8", "S8_z_L1", "S8_z_L2", "S8_z_L3"]
 
     # ------------------------------------------------------------------ init

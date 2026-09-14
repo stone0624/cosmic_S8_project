@@ -1,0 +1,327 @@
+blind: true
+dataset:
+  covariance:
+    Hartlap: true
+    Nreal: 1391
+    fname: covariance.dat
+    names:
+    - dSigma0
+    - dSigma1
+    - dSigma2
+    - xip
+    - xim
+    - wp0
+    - wp1
+    - wp2
+    nbins:
+    - 30
+    - 30
+    - 30
+    - 30
+    - 30
+    - 30
+    - 30
+    - 30
+  dirname: dataset
+  probes:
+    dSigma0:
+      Om: 0.279
+      bins: bin_dSigma_logcen.dat
+      fname_sumwlssigcritinvPz: sumwlssigcritinvPz_z0.dat
+      fname_zsbin: photoz_bin.dat
+      lensid: 0
+      logcenmax: 30
+      logcenmin: 12
+      signal: signal_dSigma0.dat
+      sourceid: 0
+      type: dSigma
+      wde: -1.0
+      zl_rep: 0.2607
+    dSigma1:
+      Om: 0.279
+      bins: bin_dSigma_logcen.dat
+      fname_sumwlssigcritinvPz: sumwlssigcritinvPz_z1.dat
+      fname_zsbin: photoz_bin.dat
+      lensid: 1
+      logcenmax: 40
+      logcenmin: 12
+      signal: signal_dSigma1.dat
+      sourceid: 0
+      type: dSigma
+      wde: -1.0
+      zl_rep: 0.5106
+    dSigma2:
+      Om: 0.279
+      bins: bin_dSigma_logcen.dat
+      fname_sumwlssigcritinvPz: sumwlssigcritinvPz_z2.dat
+      fname_zsbin: photoz_bin.dat
+      lensid: 2
+      logcenmax: 80
+      logcenmin: 12
+      signal: signal_dSigma2.dat
+      sourceid: 0
+      type: dSigma
+      wde: -1.0
+      zl_rep: 0.6264
+    wp0:
+      Om: 0.279
+      bins: bin_wp_logcen.dat
+      lensid: 0
+      logcenmax: 80
+      logcenmin: 8
+      signal: signal_wp0_100RSD.dat
+      type: wp
+      wde: -1.0
+      zl_rep: 0.2607
+    wp1:
+      Om: 0.279
+      bins: bin_wp_logcen.dat
+      lensid: 1
+      logcenmax: 80
+      logcenmin: 8
+      signal: signal_wp1_100RSD.dat
+      type: wp
+      wde: -1.0
+      zl_rep: 0.5106
+    wp2:
+      Om: 0.279
+      bins: bin_wp_logcen.dat
+      lensid: 2
+      logcenmax: 80
+      logcenmin: 8
+      signal: signal_wp2_100RSD.dat
+      type: wp
+      wde: -1.0
+      zl_rep: 0.6264
+    xim:
+      bins: bin_xi_logcen.dat
+      logcenmax: 158.48931924611142
+      logcenmin: 31.622776601683793
+      psfbias: psf_pp_pq_qq_used.dat
+      signal: signal_xim.dat
+      source0id: 0
+      source1id: 0
+      type: xim
+    xip:
+      bins: bin_xi_logcen.dat
+      logcenmax: 50.11872336272722
+      logcenmin: 7.943282347242816
+      psfbias: psf_pp_pq_qq_used.dat
+      signal: signal_xip.dat
+      source0id: 0
+      source1id: 0
+      type: xip
+  samples:
+    nzl:
+    - nzl_z0_100bin.dat
+    - nzl_z1_100bin.dat
+    - nzl_z2_100bin.dat
+    nzs:
+    - stacked_pofz_all.dat
+likelihood:
+  model:
+    cosmicshear:
+      binave: true
+      compute_xipm_each_term: false
+      verbose: true
+    do_meascorr: true
+    do_meascorr_pimax: true
+    linear_model_name: darkemu
+    magnificationbias:
+      binave: true
+      verbose: true
+    meascorr:
+      n_lensbin: 10
+      use_lensbin: false
+    minimalbias:
+      binave: true
+      do_Kaiser_corr: true
+      pimax_wp: 100.0
+      verbose: true
+    nonlinear_model_name: pyhalofit
+  name: minimalbias
+  param:
+    AIA:
+      init: 0.0
+      max: 5.0
+      min: -5.0
+      role: nuisance
+      sample: true
+      type: U
+    Ombh2:
+      init: 0.02268
+      max: 0.02425
+      mean: 0.02268
+      min: 0.02025
+      role: cosmo
+      sample: true
+      sigma: 0.00038
+      type: N
+    Omch2:
+      init: 0.1198
+      max: 0.1398
+      min: 0.0998
+      role: cosmo
+      sample: true
+      type: U
+    Omde:
+      init: 0.6844
+      max: 0.9094
+      min: 0.4594
+      role: cosmo
+      sample: true
+      type: U
+    Omk:
+      init: 0.0
+      max: 1.0
+      min: -1.0
+      role: cosmo
+      sample: false
+      type: U
+    alphamag_0:
+      init: 2.26
+      max: 9.0
+      mean: 2.26
+      min: 0.5
+      role: nuisance
+      sample: true
+      sigma: 0.5
+      type: N
+    alphamag_1:
+      init: 3.56
+      max: 9.0
+      mean: 3.56
+      min: 0.5
+      role: nuisance
+      sample: true
+      sigma: 0.5
+      type: N
+    alphamag_2:
+      init: 3.73
+      max: 9.0
+      mean: 3.73
+      min: 0.5
+      role: nuisance
+      sample: true
+      sigma: 0.5
+      type: N
+    alphapsf:
+      init: -0.026388403398119948
+      max: 1.0
+      mean: -0.026388403398119948
+      min: -1.0
+      role: nuisance
+      sample: true
+      sigma: 0.010336377481375475
+      type: N
+    b1_0:
+      init: 1.78
+      max: 4.0
+      min: 0.5
+      role: nuisance
+      sample: true
+      type: U
+    b1_1:
+      init: 2.12
+      max: 4.0
+      min: 0.5
+      role: nuisance
+      sample: true
+      type: U
+    b1_2:
+      init: 2.28
+      max: 4.0
+      min: 0.5
+      role: nuisance
+      sample: true
+      type: U
+    betapsf:
+      init: -1.65586223022114
+      max: 10.0
+      mean: -1.65586223022114
+      min: -10.0
+      role: nuisance
+      sample: true
+      sigma: 1.3258575354572018
+      type: N
+    dm_0:
+      init: 0.0
+      max: 0.05
+      mean: 0.0
+      min: -0.05
+      role: nuisance
+      sample: true
+      sigma: 0.01
+      type: N
+    dpz_0:
+      init: 0.0
+      max: 1
+      mean: -0.052896388896882474
+      min: -1
+      role: nuisance
+      sample: true
+      sigma: 0.0910594542232899
+      type: N
+    etaIA:
+      init: 0.0
+      max: 5.0
+      min: -5.0
+      role: nuisance
+      sample: false
+      type: U
+    f1h:
+      init: 1.0
+      max: 3.0
+      min: -1.0
+      role: nuisance
+      sample: false
+      type: U
+    ln10p10As:
+      init: 3.094
+      max: 5.0
+      min: 1.0
+      role: cosmo
+      sample: true
+      type: U
+    mnu:
+      init: 0.06
+      max: 0.5
+      min: 0.0
+      role: cosmo
+      sample: false
+      type: U
+    ns:
+      init: 0.9649
+      max: 1.0645
+      mean: 0.9649
+      min: 0.8645
+      role: cosmo
+      sample: true
+      sigma: 0.0126
+      type: N
+    w0:
+      init: -1
+      max: -0.2
+      min: -4.0
+      role: cosmo
+      sample: false
+      type: U
+    wa:
+      init: 0.0
+      max: 1.0
+      min: -1.0
+      role: cosmo
+      sample: false
+      type: U
+metropolis:
+  dirnameref: chain/mockfiddnnz
+  nsteps: 5000
+  seed: 1
+  write_nsteps: 100
+multinest:
+  evidence_tolerance: 0.1
+  importance_nested_sampling: true
+  n_live_points: 600
+  sampling_efficiency: 0.3
+  seed: 1
+output: chain/realfidb2dempzG09H20deg2rmcggresccxidpzhodmodesigmaeIAFdm1fix
