@@ -150,7 +150,7 @@ class HSC_Lens(Likelihood):
     xip_tmax: float = 56.6
     xim_tmin: float = 31.2
     xim_tmax: float = 158.489
-    output_params = ["sigma8", "S8", "S8_z_L1", "S8_z_L2", "S8_z_L3"]
+    output_params = ["sigma8_detg", "S8_detg", "S8_z_L1", "S8_z_L2", "S8_z_L3"]
 
     # ------------------------------------------------------------------ init
     def initialize(self):
@@ -251,7 +251,7 @@ class HSC_Lens(Likelihood):
         h = p["H0"] / 100.0
         base = ccl.Cosmology(
             Omega_c=p["omch2"] / h**2, Omega_b=p["ombh2"] / h**2, h=h,
-            A_s=p["As"], n_s=p["ns"], m_nu=MNU_FID,
+            A_s=p["As"], n_s=p["ns"], m_nu=MNU_FID, 
             transfer_function="boltzmann_camb",
             matter_power_spectrum="halofit")
         om = base["Omega_m"]
@@ -425,8 +425,9 @@ class HSC_Lens(Likelihood):
         chi2 = d @ self.inv_cov @ d
         if _derived is not None:
             s8 = ccl.sigma8(base)          # LCDM (CMB-normalized) sigma8
-            _derived["sigma8"] = s8
-            _derived["S8"] = s8 * np.sqrt(om / 0.3)
+            r0 = float(gr.ratio(0.0))          # = sqrt(1-beta)
+            _derived["sigma8_detg"] = s8 * r0
+            _derived["S8_detg"] = s8 * r0 * np.sqrt(om / 0.3)
             for i, zl in enumerate(self.z_l_eff):
                 D = ccl.growth_factor(base, 1.0 / (1.0 + zl))
                 _derived[f"S8_z_L{i+1}"] = (s8 * float(gr.ratio(zl)) * D

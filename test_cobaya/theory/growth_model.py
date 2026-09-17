@@ -75,6 +75,11 @@ class GrowthModel:
             raise ValueError("DETG alpha(a) <= 0; reject this (beta, p).")
 
     # ---------------- public API ----------------
+    def valid(self, floor=1e-3):
+        if self.model == "none":
+            return True
+        return bool(np.all(self.alpha(self._a) > floor))
+
     def alpha(self, a):
         """P_L / P_L^LCDM = R(a)^2. Scalar in -> scalar out."""
         scalar = np.isscalar(a) or np.ndim(a) == 0
