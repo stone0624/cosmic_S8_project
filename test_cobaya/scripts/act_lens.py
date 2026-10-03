@@ -23,7 +23,7 @@ class CCLState:
         self.pk_nl = calc.get_nonlin_power()
         self.pk_lin = calc.get_linear_power()
 
-    def build_ccl(p, growth_model="none", p_detg=3.0, m_nu=0.06,
+    def build_ccl(p, pk_interp, growth_model="none", p_detg=3.0, m_nu=0.06,
               mass_split="normal", z_nl=6.0, n_a_nl=48,
               lk_min=-4.0, lk_max=1.7, nk=384):
         """Build the (base, DETG-rescaled) CCL pair for one parameter point.
@@ -35,9 +35,15 @@ class CCLState:
         h = p["H0"] / 100.0
         kw = dict(Omega_c=p["omch2"] / h**2, Omega_b=p["ombh2"] / h**2, h=h,
                 A_s=p["As"], n_s=p["ns"], m_nu=m_nu, mass_split=mass_split)
+        
+        a_nl = np.linspace(1.0 / (1.0 + z_nl), 1.0, n_a_nl)
+        k_arr = np.logspace(lk_min, lk_max, nk)                 # 1/Mpc
+        z_asc = (1.0 / a_nl - 1.0)[::-1]                        # z 由小到大
+        pk_lcdm = pk_interp.P(z_asc, k_arr)[::-1]               # (n_a, nk)，再翻回 a 由小到大
     
-        base = ccl.Cosmology(transfer_function="boltzmann_camb",
-                            matter_power_spectrum="halofit", **kw)
+        base = ccl.CosmologyCalculator(                         # 取代 boltzmann_camb
+            pk_linear={"a": a_nl, "k": k_arr, "delta_matter:delta_matter": pk_lcdm},
+            nonlinear_model="halofit", **kw)
         om = base["Omega_m"]
     
         gpar = (p.get("gamma_growth") if growth_model == "gamma"
@@ -48,19 +54,15 @@ class CCLState:
             return None
         if not gr.valid():
             return None
-    
-        a_nl = np.linspace(1.0 / (1.0 + z_nl), 1.0, n_a_nl)
-        k_arr = np.logspace(lk_min, lk_max, nk)            # 1/Mpc
-    
+        
         if growth_model == "none":
             return CCLState(base, base, gr, om), k_arr, a_nl
     
-        # rescale the LINEAR pk, then let halofit act on the rescaled spectrum
-        pk = np.array([ccl.linear_matter_power(base, k_arr, a) for a in a_nl])
-        pk *= gr.alpha(a_nl)[:, None]
+        pk = pk_lcdm * gr.alpha(a_nl)[:, None]                  # 一樣：先改線性，再 halofit
         calc = ccl.CosmologyCalculator(
             pk_linear={"a": a_nl, "k": k_arr, "delta_matter:delta_matter": pk},
             nonlinear_model="halofit", **kw)
+        
         return CCLState(base, calc, gr, om), k_arr, a_nl
 
         
@@ -70,16 +72,11 @@ class CCLState:
     
         Returns ones for growth_model == 'none'.
         """
-        def _hybrid_pk2d(cosmo_for_lin, k_arr, a_nl, a_hi, alpha_hi, pk_nl_lo):
-                """Nonlinear P(k,a) over the full lensing range.
-            
-                z <= z_nl : halofit (already computed on the rescaled linear spectrum)
-                z >  z_nl : linear * alpha(a).  Halofit's correction there is <0.1%
-                            for the k that matter, and -- crucially -- the SAME recipe
-                            is used for the LCDM reference, so it cancels in r(L).
-                """
-                hi = np.array([ccl.linear_matter_power(cosmo_for_lin, k_arr, a)
-                            for a in a_hi]) * alpha_hi[:, None]
+        def _hybrid_pk2d(st, k_arr, a_nl, a_hi, alpha_hi, pk_nl_lo):
+                pk0 = ccl.linear_matter_power(st.base, k_arr, a_nl[0])          # z = z_nl 那一層
+                g2 = (ccl.growth_factor(st.base, a_hi)
+                    / ccl.growth_factor(st.base, a_nl[0]))**2
+                hi = g2[:, None] * pk0[None, :] * alpha_hi[:, None]
                 pk = np.concatenate([hi, pk_nl_lo], axis=0)
                 a = np.concatenate([a_hi, a_nl])
                 return ccl.Pk2D(a_arr=a, lk_arr=np.log(k_arr), pk_arr=np.log(pk),
@@ -97,21 +94,20 @@ class CCLState:
                             for a in a_nl])
         pk_lo_ref = np.array([ccl.nonlin_matter_power(st.base, k_arr, a)
                             for a in a_nl])
-        pk_mod = _hybrid_pk2d(st.base, k_arr, a_nl, a_hi, al_hi, pk_lo_mod)
-        pk_ref = _hybrid_pk2d(st.base, k_arr, a_nl, a_hi, one_hi, pk_lo_ref)
+        pk_mod = _hybrid_pk2d(st, k_arr, a_nl, a_hi, al_hi, pk_lo_mod)
+        pk_ref = _hybrid_pk2d(st, k_arr, a_nl, a_hi, one_hi, pk_lo_ref)
     
         kw_mod = dict(p_of_k_a=pk_mod, l_limber=l_limber)
         kw_ref = dict(p_of_k_a=pk_ref, l_limber=l_limber)
+
         if l_limber >= 0:
             # non-Limber (FKEM) also needs a LINEAR Pk2D of the same type
             ll_mod = np.array([ccl.linear_matter_power(st.calc, k_arr, a)
                             for a in a_nl])
             ll_ref = np.array([ccl.linear_matter_power(st.base, k_arr, a)
                             for a in a_nl])
-            kw_mod["p_of_k_a_lin"] = _hybrid_pk2d(st.base, k_arr, a_nl, a_hi,
-                                                al_hi, ll_mod)
-            kw_ref["p_of_k_a_lin"] = _hybrid_pk2d(st.base, k_arr, a_nl, a_hi,
-                                                one_hi, ll_ref)
+            kw_mod["p_of_k_a_lin"] = _hybrid_pk2d(st, k_arr, a_nl, a_hi, al_hi, ll_mod)
+            kw_ref["p_of_k_a_lin"] = _hybrid_pk2d(st, k_arr, a_nl, a_hi, one_hi, ll_ref)
     
         tr = ccl.CMBLensingTracer(st.base, z_source=z_star)
         nodes = np.unique(np.geomspace(8.0, max(lmax, 10), n_ell).astype(int))
@@ -121,10 +117,11 @@ class CCLState:
         return np.interp(ell_out, nodes, r, left=r[0], right=r[-1])
 
 
-class ACTDR6LensDETG(alike.ACTDR6LensLike):
 
-    # ---- new options (everything else is inherited: variant, lens_only,
-    #      trim_lmax, lmax, apply_hartlap, varying_cmb_alens, limber, ...) ----
+class ACTDR6LensDETG(alike.ACTDR6LensLike):
+    ''' new options (everything else is inherited: variant, lens_only,
+        trim_lmax, lmax, apply_hartlap, varying_cmb_alens, limber, ...)
+    '''
     apply_growth_ratio: bool = True
     ddir: str = ""          # explicit path to the extracted v1.2 data dir
     growth_model: str = "detg"
@@ -156,10 +153,14 @@ class ACTDR6LensDETG(alike.ACTDR6LensLike):
             f"like_corrections={not self.no_like_corrections} "
             f"growth_ratio={'ON' if self.apply_growth_ratio else 'off'}")
 
+
     def get_requirements(self):
         req = super().get_requirements()
         if self.apply_growth_ratio:
             req.update({p: None for p in ["ombh2", "omch2", "H0", "ns", "As"]})
+            a_nl = np.linspace(1.0 / 7.0, 1.0, 48)
+            req["Pk_interpolator"] = {"z": np.sort(1.0 / a_nl - 1.0), "k_max": 10.0,
+                                      "nonlinear": False, "vars_pairs": [("delta_tot", "delta_tot")]}
             if self.growth_model == "gamma":
                 req["gamma_growth"] = None
             elif self.growth_model == "detg":
@@ -167,7 +168,6 @@ class ACTDR6LensDETG(alike.ACTDR6LensLike):
         if self.varying_cmb_alens:
             req["Alens"] = None
         return req
-
 
     def loglike(self, cl, **params_values):
         if not self.apply_growth_ratio:
@@ -178,11 +178,15 @@ class ACTDR6LensDETG(alike.ACTDR6LensLike):
         clpp = cl["pp"] / Alens
         cl_kk = (self.get_limber_clkk(**params_values) if self.limber
                  else alike.pp_to_kk(clpp, ell))
+        
+        pk_interp = self.provider.get_Pk_interpolator(
+            ("delta_tot", "delta_tot"), nonlinear=False,
+            extrap_kmin=1e-5, extrap_kmax=60.0)        # 涵蓋 k_arr = 10^-4 … 10^1.7 /Mpc
 
-        built = CCLState.build_ccl(params_values, growth_model=self.growth_model,
-                          p_detg=self.p_detg, m_nu=self.m_nu,
-                          mass_split=self.mass_split)
-        if built is None:                       # beta >= 1 之類的不合法點
+        built = CCLState.build_ccl(params_values, pk_interp,
+                          growth_model=self.growth_model, p_detg=self.p_detg, 
+                          m_nu=self.m_nu, mass_split=self.mass_split)
+        if built is None:                       # beta >= 1, etc.
             return -np.inf
         st, k_arr, a_nl = built
         r = CCLState.kk_transfer_ratio(st, k_arr, a_nl, lmax=self.lmax)
