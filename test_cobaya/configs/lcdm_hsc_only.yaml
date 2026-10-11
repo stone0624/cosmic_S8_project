@@ -1,6 +1,10 @@
 # LCDM reproduction of Sugiyama et al. 2023 (HSC-only, minimal-bias 3x2pt).
 # VERIFY every prior below against dataset's analysis_config.yaml before MCMC.
-
+theory:
+  camb:
+    extra_args: {lens_potential_accuracy: 1}
+    stop_at_error: true
+    
 likelihood:
   hsc_lens.HSC_Lens:
     python_path: ./scripts
@@ -18,6 +22,8 @@ likelihood:
     stop_at_error: true
 
 params:
+  tau: 0.055
+  mnu: 0.06
   # ---- cosmology (no CAMB theory block: CCL does everything) ----
   ombh2: {prior: {min: 0.017, max: 0.027}, ref: 0.02268, proposal: 0.0001,
           latex: '\Omega_b h^2'}
