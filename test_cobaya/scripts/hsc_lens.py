@@ -63,7 +63,6 @@ except ModuleNotFoundError as _e:
 C_OVER_H0 = 2997.92458          # c/H0 in Mpc/h for h=1
 OM_MEAS = 0.279                 # cosmology assumed in the measurement
 SIGC_CONST = 1.6624e18          # c^2/(4 pi G) in M_sun / Mpc (h=1 units used below)
-MNU_FID = 0.06                  # eV, HSC-Y3 fiducial
 
 
 def E_flat(z, om):
@@ -136,6 +135,7 @@ class HSC_Lens(Likelihood):
     sumwlssig_files: list = []            # [dataset/sumwlssigcritinvPz_z0.dat, ...]
     zsbin_file: str = ""                  # dataset/photoz_bin.dat
     growth_model: str = "none"            # 'none' | 'gamma' | 'detg'
+    mass_split: str = "single"            # 與 cobaya CAMB 預設（1 顆有質量）一致
     p_detg: float = 3.0
     n_sim: int = 1404                     # Hartlap (More+2023 mocks)
     binave: bool = True
@@ -150,7 +150,7 @@ class HSC_Lens(Likelihood):
     xip_tmax: float = 56.6
     xim_tmin: float = 31.2
     xim_tmax: float = 158.489
-    output_params = ["sigma8_detg", "S8_detg", "S8_z_L1", "S8_z_L2", "S8_z_L3"]
+    output_params = ["sigma8", "S8", "S8_z_L1", "S8_z_L2", "S8_z_L3"]
 
     # ------------------------------------------------------------------ init
     def initialize(self):
@@ -236,10 +236,14 @@ class HSC_Lens(Likelihood):
     # ------------------------------------------------------------ cobaya API
     def get_requirements(self):
         req = {p: None for p in
-               ["ombh2", "omch2", "H0", "ns", "As",
+               ["ombh2", "omch2", "H0", "ns", "As", "mnu",
                 "b1", "b2", "b3", "AIA", "dm_0", "dpz_0",
                 "alphapsf", "betapsf",
                 "alphamag_1", "alphamag_2", "alphamag_3"]}
+        a_nl = np.linspace(1.0 / 7.0, 1.0, 48)
+        req["Pk_interpolator"] = {"z": np.sort(1.0 / a_nl - 1.0), "k_max": 10.0,
+                                  "nonlinear": False,
+                                  "vars_pairs": [("delta_tot", "delta_tot")]}
         if self.growth_model == "gamma":
             req["gamma_growth"] = None
         elif self.growth_model == "detg":
@@ -249,31 +253,32 @@ class HSC_Lens(Likelihood):
     # ------------------------------------------------------------ cosmology
     def _build_cosmology(self, p):
         h = p["H0"] / 100.0
-        base = ccl.Cosmology(
-            Omega_c=p["omch2"] / h**2, Omega_b=p["ombh2"] / h**2, h=h,
-            A_s=p["As"], n_s=p["ns"], m_nu=MNU_FID, 
-            transfer_function="boltzmann_camb",
-            matter_power_spectrum="halofit")
+        kw = dict(Omega_c=p["omch2"] / h**2, Omega_b=p["ombh2"] / h**2, h=h,
+                  A_s=p["As"], n_s=p["ns"], m_nu=p["mnu"], mass_split=self.mass_split)
+        a_arr = np.linspace(1.0 / (1.0 + 6.0), 1.0, 48)
+        k_arr = np.logspace(-4, 1.7, 384)                       # 1/Mpc
+        pk_interp = self.provider.get_Pk_interpolator(
+            ("delta_tot", "delta_tot"), nonlinear=False, extrap_kmin=1e-5, extrap_kmax=60.0)
+        pk_lcdm = pk_interp.P((1.0 / a_arr - 1.0)[::-1], k_arr)[::-1]   # a 由小到大
+        base = ccl.CosmologyCalculator(
+            pk_linear={"a": a_arr, "k": k_arr, "delta_matter:delta_matter": pk_lcdm},
+            nonlinear_model="halofit", **kw)
         om = base["Omega_m"]
 
         gpar = (p.get("gamma_growth") if self.growth_model == "gamma"
-                else p.get("beta_detg") if self.growth_model == "detg"
-                else 0.0)
-        gr = GrowthModel(self.growth_model, om, par=gpar or 0.0, p=self.p_detg)
-
+                else p.get("beta_detg") if self.growth_model == "detg" else 0.0)
+        try:
+            gr = GrowthModel(self.growth_model, om, par=gpar or 0.0, p=self.p_detg)
+        except ValueError:
+            return None
+        if not gr.valid():
+            return None
         if self.growth_model == "none":
             return base, base, gr, om
-        # rescale LINEAR pk, then halofit on the rescaled linear spectrum
-        a_arr = np.linspace(1.0 / (1.0 + 6.0), 1.0, 48)
-        k_arr = np.logspace(-4, 1.7, 384)          # 1/Mpc
-        pk = np.array([ccl.linear_matter_power(base, k_arr, a) for a in a_arr])
-        pk *= gr.alpha(a_arr)[:, None]
         calc = ccl.CosmologyCalculator(
-            Omega_c=p["omch2"] / h**2, Omega_b=p["ombh2"] / h**2, h=h,
-            A_s=p["As"], n_s=p["ns"], m_nu=MNU_FID,
             pk_linear={"a": a_arr, "k": k_arr,
-                       "delta_matter:delta_matter": pk},
-            nonlinear_model="halofit")
+                       "delta_matter:delta_matter": pk_lcdm * gr.alpha(a_arr)[:, None]},
+            nonlinear_model="halofit", **kw)
         return base, calc, gr, om
 
     # -------------------------------------------------------------- theory
@@ -417,7 +422,13 @@ class HSC_Lens(Likelihood):
 
     # ---------------------------------------------------------------- logp
     def logp(self, _derived=None, **pv):
-        base, cosmo, gr, om = self._build_cosmology(pv)
+        built = self._build_cosmology(pv)
+        if built is None:
+            if _derived is not None:
+                for k in self.output_params:
+                    _derived[k] = np.nan
+            return -np.inf
+        base, cosmo, gr, om = built
         m = self.theory_vector(base, cosmo, gr, om, pv)
         if len(m) != len(self.data_vector):
             raise ValueError(f"theory={len(m)} vs data={len(self.data_vector)}")
@@ -426,8 +437,8 @@ class HSC_Lens(Likelihood):
         if _derived is not None:
             s8 = ccl.sigma8(base)          # LCDM (CMB-normalized) sigma8
             r0 = float(gr.ratio(0.0))          # = sqrt(1-beta)
-            _derived["sigma8_detg"] = s8 * r0
-            _derived["S8_detg"] = s8 * r0 * np.sqrt(om / 0.3)
+            _derived["sigma8"] = s8 * r0
+            _derived["S8"] = s8 * r0 * np.sqrt(om / 0.3)
             for i, zl in enumerate(self.z_l_eff):
                 D = ccl.growth_factor(base, 1.0 / (1.0 + zl))
                 _derived[f"S8_z_L{i+1}"] = (s8 * float(gr.ratio(zl)) * D
