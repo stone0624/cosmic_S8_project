@@ -1,4 +1,4 @@
-packages_path: /home/weichen/cosmo_practice/packages/cobaya_packages
+packages_path: /home/andromeda/cosmo_practice/packages/cobaya_packages
 
 theory:
   camb:
@@ -17,8 +17,8 @@ likelihood:
 
   # 2. HSC Lens (3x2pt) Likelihood
   test_hsc_lens.HSC_Lens:
-    python_path: /home/weichen/cosmo_practice/scripts/
-    data_folder: /home/weichen/cosmo_practice/
+    python_path: /home/andromeda/cosmo_practice/scripts/
+    data_folder: /home/andromeda/cosmo_practice/
     dataset_file: "dataset_hsc_y3.fits"
     speed: 10
     stop_at_error: True

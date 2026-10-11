@@ -7,7 +7,7 @@ from astropy.io import fits
 import pyccl as ccl
 
 import sys
-sys.path.insert(0, '/home/weichen/cosmo_practice/chains/actxdesi_new/actxdesi_new')
+sys.path.insert(0, '/home/andromeda/cosmo_practice/chains/actxdesi_new/actxdesi_new')
 try:
     from growth_model import R_of_z, f_ratio_of_z
 except ImportError:
