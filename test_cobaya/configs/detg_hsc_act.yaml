@@ -1,58 +1,63 @@
+packages_path: /home/andromeda/cobaya_packages
+
 theory:
   camb:
-    tau: 0.0544
     extra_args:
-      num_massive_neutrinos: 1
-      mnu: 0.06
-      nnu: 3.044
-      lens_margin: 1250
-      halofit_version: takahashi
       lens_potential_accuracy: 4      # ACT DR6 官方建議值
-  growth_model.GrowthModel:
-    python_path: /home/weichen/cosmo_practice/test_cobaya/theory
-    model: detg
+      lens_output_margin: 1250
+      num_massive_neutrinos: 1        # 與 act_lens / hsc_lens mass_split: single
+      halofit_version: takahashi
+    stop_at_error: true
 
 likelihood:
   planck_2018_highl_plik.TTTEEE_lite_native: null
-  bao.desi_2024_bao_all: null
+#   bao.desi_2024_bao_all: null
 
   act_lens.ACTDR6LensDETG:
-    python_path: /home/weichen/cosmo_practice/test_cobaya/scripts
+    python_path: /home/andromeda/cosmo_practice/test_cobaya/scripts
+    variant: act_baseline
+    lens_only: false                  # 與 primary CMB 合併時，ACT 建議 lens_only=false（會載入 like_corrs，約 0.6 GB）
     growth_model: detg
-    p_detg: 3.0
-    n_sim: 1391
+    p_detg: 1.0
+    mass_split: single                # act_lens.py 的預設是 "normal"，驗證時用的是 "single"
+    varying_cmb_alens: true
     stop_at_error: true
 
   hsc_lens.HSC_Lens:
-    python_path: ./scripts
-    data_folder: ./fiducial
+    python_path: /home/andromeda/cosmo_practice/test_cobaya/scripts   # 改成絕對路徑，不依賴執行目錄
+    data_folder: /home/andromeda/cosmo_practice/test_cobaya/fiducial
     dataset_file: dataset_hsc_y3_fixed.fits
-    psf_file: dataset/psf_pp_pq_qq_used.dat          # fiducial star set
+    psf_file: dataset/psf_pp_pq_qq_used.dat
     sumwlssig_files:
       - dataset/sumwlssigcritinvPz_z0.dat
       - dataset/sumwlssigcritinvPz_z1.dat
       - dataset/sumwlssigcritinvPz_z2.dat
     zsbin_file: dataset/photoz_bin.dat
     growth_model: detg
-    p_detg: 3.0
-    n_sim: 1391                 # matches analysis_config.yaml (Nreal)
+    p_detg: 3.0                       # 必須與 ACT 的 p_detg 相同
+    mass_split: single
+    n_sim: 1391
     binave: true
     stop_at_error: true
 
 params:
-  ombh2: {prior: {min: 0.017, max: 0.027}, ref: 0.02268, proposal: 0.0001,
+  ombh2: {prior: {min: 0.017, max: 0.027}, ref: 0.02237, proposal: 0.0001,
           latex: '\Omega_b h^2'}
-  omch2: {prior: {min: 0.05, max: 0.20}, ref: 0.1162, proposal: 0.001,
+  omch2: {prior: {min: 0.05, max: 0.20}, ref: 0.1200, proposal: 0.001,
           latex: '\Omega_c h^2'}
-  H0:    {prior: {min: 60, max: 80}, ref: 69.0, proposal: 0.4, latex: 'H_0'}
-  ns:    {prior: {min: 0.8, max: 1.2}, ref: 0.9715, proposal: 0.004,
+  H0:    {prior: {min: 50, max: 90}, ref: 67.4, proposal: 0.4, latex: 'H_0'}   # 放寬：HSC 單獨偏好 H0<60（見 joint notebook B6）
+  ns:    {prior: {min: 0.8, max: 1.2}, ref: 0.9649, proposal: 0.004,
           latex: 'n_s'}
-  logA:  {prior: {min: 1.61, max: 3.91}, ref: 3.01, proposal: 0.01,
+  logA:  {prior: {min: 1.61, max: 3.91}, ref: 3.044, proposal: 0.01,
           drop: true, latex: '\ln(10^{10} A_s)'}
   As:    {value: 'lambda logA: 1e-10*np.exp(logA)', derived: true,
           latex: 'A_s'}
+  tau:   {prior: {dist: norm, loc: 0.0544, scale: 0.0073}, ref: 0.0544, proposal: 0.003,
+          latex: '\tau_{\rm reio}'}
+  Alens: {prior: {min: 0.5, max: 1.5}, ref: 1.0, proposal: 0.03, latex: 'A_L'}
+  mnu: 0.06
   beta_detg: {prior: {min: -1.0, max: 0.99}, ref: {dist: norm, loc: 0.1, scale: 0.05},
-            proposal: 0.03, latex: '\beta'}
+              proposal: 0.03, latex: '\beta'}
 
   # ---- galaxy bias ----
   b1: {prior: {min: 0.5, max: 5.0}, ref: 1.92, proposal: 0.1, latex: 'b_1'}
@@ -86,8 +91,8 @@ params:
   # ---- derived ----
   om_m:   {derived: 'lambda omch2, ombh2, H0: (omch2+ombh2+0.06/93.14)/(H0/100)**2',
            latex: '\Omega_m'}
-  sigma8_detg: {derived: true, latex: '\sigma_8'}
-  S8_detg:     {derived: true, latex: 'S_8'}
+  sigma8:  {derived: true, latex: '\sigma_8^{\rm DETG}'}
+  S8:      {derived: true, latex: 'S_8^{\rm DETG}'}
   S8_z_L1: {derived: true, latex: 'S_8(z_{L1})'}
   S8_z_L2: {derived: true, latex: 'S_8(z_{L2})'}
   S8_z_L3: {derived: true, latex: 'S_8(z_{L3})'}
