@@ -2,11 +2,13 @@ packages_path: /home/andromeda/cobaya_packages
 
 theory:
   camb:
+    path: /home/andromeda/cosmo_practice/CAMB_DETG
     extra_args:
       lens_potential_accuracy: 4      # ACT DR6 官方建議值
-      lens_output_margin: 1250
+      lens_margin: 1250
       num_massive_neutrinos: 1        # 與 act_lens / hsc_lens mass_split: single
-      halofit_version: takahashi
+      halofit_version: mead           # HMCode
+      HMCode_DETG_p: 3
     stop_at_error: true
 
 likelihood:
@@ -18,13 +20,14 @@ likelihood:
     variant: act_baseline
     lens_only: false                  # 與 primary CMB 合併時，ACT 建議 lens_only=false（會載入 like_corrs，約 0.6 GB）
     growth_model: detg
-    p_detg: 1.0
+    p_detg: 3.0
     mass_split: single                # act_lens.py 的預設是 "normal"，驗證時用的是 "single"
     varying_cmb_alens: true
+    apply_growth_ratio: false         # A_L 已做detg修正，不再額外套用 growth_ratio
     stop_at_error: true
 
   hsc_lens.HSC_Lens:
-    python_path: /home/andromeda/cosmo_practice/test_cobaya/scripts   # 改成絕對路徑，不依賴執行目錄
+    python_path: /home/andromeda/cosmo_practice/test_cobaya/scripts
     data_folder: /home/andromeda/cosmo_practice/test_cobaya/fiducial
     dataset_file: dataset_hsc_y3_fixed.fits
     psf_file: dataset/psf_pp_pq_qq_used.dat
@@ -41,6 +44,9 @@ likelihood:
     stop_at_error: true
 
 params:
+  mnu: 0.06
+  Alens: 1.0
+#   Alens: {prior: {min: 0.5, max: 1.5}, ref: 1.0, proposal: 0.03, latex: 'A_L'}
   ombh2: {prior: {min: 0.017, max: 0.027}, ref: 0.02237, proposal: 0.0001,
           latex: '\Omega_b h^2'}
   omch2: {prior: {min: 0.05, max: 0.20}, ref: 0.1200, proposal: 0.001,
@@ -52,12 +58,10 @@ params:
           drop: true, latex: '\ln(10^{10} A_s)'}
   As:    {value: 'lambda logA: 1e-10*np.exp(logA)', derived: true,
           latex: 'A_s'}
-  tau:   {prior: {dist: norm, loc: 0.0544, scale: 0.0073}, ref: 0.0544, proposal: 0.003,
-          latex: '\tau_{\rm reio}'}
-  Alens: {prior: {min: 0.5, max: 1.5}, ref: 1.0, proposal: 0.03, latex: 'A_L'}
-  mnu: 0.06
-  beta_detg: {prior: {min: -1.0, max: 0.99}, ref: {dist: norm, loc: 0.1, scale: 0.05},
-              proposal: 0.03, latex: '\beta'}
+  tau:   {prior: {dist: norm, loc: 0.0544, scale: 0.0073}, ref: 0.0544,
+                  proposal: 0.003, latex: '\tau_{\rm reio}'}
+  beta_detg: {prior: {min: -1.0, max: 1.0}, ref: {dist: norm, 
+              loc: 0.0, scale: 0.05}, proposal: 0.05, latex: \beta}
 
   # ---- galaxy bias ----
   b1: {prior: {min: 0.5, max: 5.0}, ref: 1.92, proposal: 0.1, latex: 'b_1'}
@@ -89,6 +93,8 @@ params:
                ref: 3.729, proposal: 0.2, latex: '\alpha_{\rm mag,3}'}
 
   # ---- derived ----
+  HMCode_DETG_beta: {value: 'lambda beta_detg: beta_detg',
+                     derived: false, latex: '\beta^{\rm DETG}'}
   om_m:   {derived: 'lambda omch2, ombh2, H0: (omch2+ombh2+0.06/93.14)/(H0/100)**2',
            latex: '\Omega_m'}
   sigma8:  {derived: true, latex: '\sigma_8^{\rm DETG}'}
@@ -99,9 +105,15 @@ params:
 
 sampler:
   evaluate:
+    override:
+      beta_detg: 0.0
+      dpz_0: -0.0529
+      dm_0: 0.0
+      AIA: 0.0
+      A_planck: 1.0
   # mcmc:
   #   covmat: auto           # or the published parameter covariance
   #   Rminus1_stop: 0.02
   #   max_samples: 500000
 
-output: chains/detg_hsc_act/run
+output: /home/andromeda/cosmo_practice/test_cobaya/chains/detg_hsc_act_AL/run

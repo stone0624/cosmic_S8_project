@@ -1,7 +1,3 @@
-"""快速檢查一條 DETG chain：關鍵參數、A_L、各 chain 長度與收斂。
-
-用法：python check_alens.py [root]      （root 相對於 detg_common.CHAIN_BASE，例如 detg_p3_AL/run）
-"""
 import sys
 import glob
 import numpy as np
@@ -38,3 +34,14 @@ for k, v in cv.items():
         print(f"單變數 R-1 [{k}] = {v:.4f}")
 if len(cv) == 0:
     print("\n(無法計算 R-1：需要 >= 2 條 chain 檔或 .progress)")
+
+
+
+import sys
+sys.path.insert(0, "/home/andromeda/cosmo_practice/test_cobaya/theory")  # growth_model.py 所在位置
+from growth_model import GrowthModel
+gr = GrowthModel("detg", 0.305, par=0.443, p=5)
+print(gr.alpha(1.0))        # 預期 0.557 (= 1-β)
+print(gr.ratio(0.0))        # 預期 0.746 (= √(1-β))
+print(gr.f(0.3, 0.676))     # 預期 ≈ 0.30（ΛCDM f(0.3)=0.676）
+print(gr.f(0.07, 0.559))    # 預期 ≈ -0.67
